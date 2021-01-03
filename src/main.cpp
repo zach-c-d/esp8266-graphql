@@ -8,67 +8,119 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h> // create TLS connection
 
+#include <shelter_secrets.h>
+
 WiFiClientSecure client;
-char queryBuffer[512];
+void initWifi()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(_WIFI_SSID, _WIFI_PWD);
+
+  Serial.println("Connecting..");
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.println(".");
+  }
+  Serial.printf("SSID: %s\nIP: %s\n", _WIFI_SSID, WiFi.localIP().toString().c_str());
+}
 
 // #define SYNCPRINT_SIZE 256
 #define REQBUFF_SIZE 256
+#define VARBUFF_SIZE 256
 #define RESPBUFF_SIZE 2048
 
-const char *_API_HOST = "https://api.chalmersproject.com";
+const char *_API_HOST = "https://api.chalmersproject.com/graphql";
+// Attempting to do a multi-line variable declaration: HOWTO?
+const char *MUTATION = "           \
+mutation MeasureShelterOccupancy(  \
+  $signalId: ID!                   \
+  $signalSecret: String!           \
+  $measurement: Int!               \
+) {                                \
+  measureShelterOccupancy(         \
+    input: {                       \
+      signalId: $signalId          \
+      signalSecret: $signalSecret  \
+      measurement: $measurement    \
+    }                              \
+  ) {                              \
+    measurement {                  \
+      id                           \
+    }                              \
+  }                                \
+}";
 
-// 
-// set this captive portal on esp8266 at startup?
-// or set this from esp mac address? or some other locally stored unique identifier?
-// scan qr code on back with phone -> opens admin portal on web browser ->
-//
-const char *_SHELTER_ID = "sl;akfj;pqoelkj,a.jf,mqj."; 
-const char *_SHELTER_SECRET = "sl;akfj;pqoelkj,a.jf,mqj.";
+int _MEASUREMENT = 55;
 
+typedef struct graphqlQuery
+{
+  char req[REQBUFF_SIZE];
+  char var[VARBUFF_SIZE];
+  int status;
+  String resp;
+} GraphqlQuery;
+
+// HTTP POST to chalmersproject API
+void occupancy_request(WiFiClientSecure client, int _MEASUREMENT)
+{
+  // GraphqlQuery *graphql = (GraphqlQuery *)malloc(sizeof(GraphqlQuery));
+  HTTPClient http;
+  DynamicJsonDocument reqJson(1024);
+  DynamicJsonDocument varJson(1024);
+  varJson["signalId"] = SIGNAL_ID;
+  varJson["signalSecret"] = SIGNAL_SECRET;
+  varJson["measurement"] = _MEASUREMENT;
+
+  Serial.println("Sending HTTP POST");
+  http.begin(client, _API_HOST);
+  http.addHeader("Content-Type", "application/json");
+  reqJson["query"] = MUTATION;
+  reqJson["variables"] = varJson;
+
+  String request;
+  serializeJson(reqJson, request);
+  Serial.print("Request: ");
+  Serial.println(request);
+
+  http.POST(request);
+
+  Serial.print("Response: ");
+  Serial.println(http.getString());
+}
 
 void setup()
 {
   Serial.begin(115200);
-  // sprintf(queryBuffer,
-        // "{User(search:\"%s\"){id name statistics{anime{episodesWatched minutesWatched}}}}", _SHELTER_ID);
-  sprintf(queryBuffer,
-          "{mutation \ 
-             { \
-                ShelterMeasurementMutations(signal_id: \"%s\", signal_secret: \"%s\")}{id name statistics{anime{episodesWatched minutesWatched}}}}", _SHELTER_ID, _SHELTER_SECRET);
+  initWifi();
+  // HTTPClient http;
+  client.setInsecure();
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    occupancy_request(client, _MEASUREMENT);
+    // http.begin(client, "https://google.com");
+    // Serial.println(http.getString());
+    // http.GET();
+    // Serial.println(graphql->resp);
+  }
 }
-
 void loop()
 {
-  // put your main code here, to run repeatedly:
 }
-typedef struct graphqlQuery
+// REQUEST FORMAT:
+/*
 {
-  char req[REQBUFF_SIZE];
-  int status;
-  char resp[RESPBUFF_SIZE];
-} GraphqlQuery;
-
-typedef struct send_occupancy_update
-{
-  long userId;
-  char username[128];
-  int episodesWatched;
-  int minutesWatched;
-} Send_Occupancy_Update;
-Send_Occupancy_Update *update_Occupancy(JsonObject data);
-
-// HTTP POST to Anilist GraphQL API
-GraphqlQuery *occupancy_request(WiFiClientSecure client, const char *query)
-{
-  GraphqlQuery *graphql = (GraphqlQuery *)malloc(sizeof(GraphqlQuery));
-  HTTPClient http;
-  StaticJsonDocument<200> reqJson;
-  Serial.println("Sending HTTP POST");
-  http.begin(client, _API_HOST);
-  http.addHeader("Content-Type", "application/json");
-  reqJson["query"] = query;
-
-  serializeJson(reqJson, graphql->req);
-  Serial.printf("HTTP REQ: %s\n", graphql->req);
-  graphql->status = http.POST(graphql->req);
+  query: "...the raw query text...",
+  variables: {
+    signalId: "...",
+    signalSecret: "...",
+    occupancy: 10
+  }
 }
+
+reqJson = {
+  query: "...",
+  variables: varJson
+}
+
+*/

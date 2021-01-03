@@ -19,3 +19,4 @@ esp/lib/parse-esp/
 ui/.gitignore
 ui/package-lock.json
 NOTES
+include/shelter_secrets.h
